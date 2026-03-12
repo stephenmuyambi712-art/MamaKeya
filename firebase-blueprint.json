@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the MamaKeya application.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique ID of the user." },
+        "name": { "type": "string", "description": "Full name of the user." },
+        "email": { "type": "string", "description": "Email address of the user." },
+        "role": { "type": "string", "enum": ["mother", "doctor", "admin"], "description": "The role of the user." },
+        "pregnancy_start_date": { "type": "string", "format": "date", "description": "The date the pregnancy started." },
+        "due_date": { "type": "string", "format": "date", "description": "The calculated due date." }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Symptom": {
+      "title": "Symptom",
+      "description": "A logged pregnancy symptom.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID of the owner." },
+        "symptom": { "type": "string" },
+        "severity": { "type": "string", "enum": ["Mild", "Moderate", "Severe"] },
+        "notes": { "type": "string" },
+        "date_recorded": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "symptom", "severity", "date_recorded"]
+    },
+    "HealthRecord": {
+      "title": "HealthRecord",
+      "description": "A logged health indicator.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "weight": { "type": "number" },
+        "blood_pressure": { "type": "string" },
+        "mood": { "type": "string" },
+        "sleep_hours": { "type": "number" },
+        "record_date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "record_date"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A doctor appointment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "doctor_name": { "type": "string" },
+        "hospital": { "type": "string" },
+        "appointment_date": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" }
+      },
+      "required": ["uid", "doctor_name", "appointment_date"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message between users.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "participants": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["senderId", "receiverId", "text", "timestamp", "participants"]
+    },
+    "AIConversation": {
+      "title": "AIConversation",
+      "description": "A chat session with the AI advisor.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "model"] },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "messages", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profiles." },
+    "/symptoms/{symptomId}": { "schema": "Symptom", "description": "User symptoms." },
+    "/health_records/{recordId}": { "schema": "HealthRecord", "description": "User health records." },
+    "/appointments/{appointmentId}": { "schema": "Appointment", "description": "User appointments." },
+    "/messages/{messageId}": { "schema": "Message", "description": "Direct messages." },
+    "/ai_conversations/{convId}": { "schema": "AIConversation", "description": "AI advisor chats." }
+  }
+}

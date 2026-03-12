@@ -21,10 +21,13 @@ import {
   Droplets,
   Smile,
   Moon,
-  ChevronLeft
+  ChevronLeft,
+  MessageCircle,
+  Send
 } from 'lucide-react';
 import { api } from './services/api';
-import { User, Symptom, HealthRecord, Appointment, PregnancyWeek } from './types';
+import { aiAdvisor } from './services/ai';
+import { User, Symptom, HealthRecord, Appointment, PregnancyWeek, Message } from './types';
 
 // --- Components ---
 
@@ -62,8 +65,7 @@ const Input = ({ label, ...props }: any) => (
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [view, setView] = useState<'dashboard' | 'symptoms' | 'health' | 'appointments' | 'week-detail' | 'profile'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'symptoms' | 'health' | 'appointments' | 'week-detail' | 'profile' | 'ai-advisor' | 'messages'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
@@ -73,43 +75,58 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [currentWeekInfo, setCurrentWeekInfo] = useState<PregnancyWeek | null>(null);
 
-  useEffect(() => {
-    if (token) {
-      fetchInitialData();
-    } else {
-      setLoading(false);
-    }
-  }, [token]);
+  // Messaging state
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedChatUser, setSelectedChatUser] = useState<User | null>(null);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
 
-  const fetchInitialData = async () => {
+  useEffect(() => {
+    const unsubscribe = api.onAuthChange((u) => {
+      setUser(u);
+      if (u) {
+        fetchInitialData(u);
+      } else {
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const fetchInitialData = async (u: User) => {
     try {
-      const userData = await api.getMe();
-      setUser(userData);
-      
-      const week = calculateCurrentWeek(userData.pregnancy_start_date);
+      const week = calculateCurrentWeek(u.pregnancy_start_date);
       const weekInfo = await api.getWeekInfo(week);
       setCurrentWeekInfo(weekInfo);
 
-      const [symptomData, healthData, appointmentData] = await Promise.all([
-        api.getSymptoms(),
-        api.getHealthRecords(),
-        api.getAppointments()
-      ]);
+      // Subscribe to real-time updates
+      const unsubSymptoms = api.subscribeSymptoms(u.id, setSymptoms);
+      const unsubHealth = api.subscribeHealth(u.id, setHealthRecords);
+      const unsubAppointments = api.subscribeAppointments(u.id, setAppointments);
 
-      setSymptoms(symptomData);
-      setHealthRecords(healthData);
-      setAppointments(appointmentData);
+      const users = await api.getUsers();
+      setAllUsers(users.filter(user => user.id !== u.id));
+
+      return () => {
+        unsubSymptoms();
+        unsubHealth();
+        unsubAppointments();
+      };
     } catch (err) {
       console.error(err);
-      handleLogout();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
+  useEffect(() => {
+    if (user && selectedChatUser) {
+      const unsub = api.subscribeMessages(user.id, selectedChatUser.id, setChatMessages);
+      return () => unsub();
+    }
+  }, [user, selectedChatUser]);
+
+  const handleLogout = async () => {
+    await api.logout();
     setUser(null);
     setView('dashboard');
   };
@@ -146,7 +163,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen onAuth={(t, u) => { setToken(t); setUser(u); localStorage.setItem('token', t); }} view={authView} setView={setAuthView} />;
+    return <AuthScreen view={authView} setView={setAuthView} />;
   }
 
   return (
@@ -172,6 +189,21 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
+              {/* AI Advisor Entry */}
+              <Card 
+                className="bg-indigo-600 text-white border-none flex items-center gap-4 cursor-pointer hover:bg-indigo-700 transition-colors"
+                onClick={() => setView('ai-advisor')}
+              >
+                <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                  <Smile size={28} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold">MamaKeya AI Advisor</h3>
+                  <p className="text-xs opacity-80">Get personalized advice based on your data</p>
+                </div>
+                <ChevronRight />
+              </Card>
+
               {/* Progress Card */}
               <Card className="bg-gradient-to-br from-rose-400 to-rose-500 text-white border-none overflow-hidden relative">
                 <div className="relative z-10">
@@ -262,20 +294,31 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === 'symptoms' && <SymptomsView symptoms={symptoms} onAdd={() => api.getSymptoms().then(setSymptoms)} onBack={() => setView('dashboard')} />}
-          {view === 'health' && <HealthView records={healthRecords} onAdd={() => api.getHealthRecords().then(setHealthRecords)} onBack={() => setView('dashboard')} />}
-          {view === 'appointments' && <AppointmentsView appointments={appointments} onAdd={() => api.getAppointments().then(setAppointments)} onBack={() => setView('dashboard')} />}
+          {view === 'symptoms' && <SymptomsView symptoms={symptoms} onAdd={() => {}} onBack={() => setView('dashboard')} />}
+          {view === 'health' && <HealthView records={healthRecords} onAdd={() => {}} onBack={() => setView('dashboard')} />}
+          {view === 'appointments' && <AppointmentsView appointments={appointments} onAdd={() => {}} onBack={() => setView('dashboard')} />}
           {view === 'week-detail' && <WeekDetailView info={currentWeekInfo} onBack={() => setView('dashboard')} />}
           {view === 'profile' && <ProfileView user={user} onLogout={handleLogout} onBack={() => setView('dashboard')} />}
+          {view === 'ai-advisor' && <AIAdvisorView user={user} symptoms={symptoms} health={healthRecords} appointments={appointments} onBack={() => setView('dashboard')} />}
+          {view === 'messages' && (
+            <MessagesView 
+              user={user} 
+              allUsers={allUsers} 
+              selectedUser={selectedChatUser} 
+              setSelectedUser={setSelectedChatUser} 
+              messages={chatMessages}
+              onBack={() => setView('dashboard')} 
+            />
+          )}
         </AnimatePresence>
       </main>
 
       {/* Navigation Bar */}
       <nav className="fixed bottom-6 left-6 right-6 bg-white/80 backdrop-blur-xl border border-rose-50 rounded-[32px] p-2 flex justify-around items-center shadow-2xl shadow-rose-100 z-50">
         <NavButton active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={<Heart />} />
-        <NavButton active={view === 'symptoms'} onClick={() => setView('symptoms')} icon={<Droplets />} />
-        <NavButton active={view === 'health'} onClick={() => setView('health')} icon={<Activity />} />
-        <NavButton active={view === 'appointments'} onClick={() => setView('appointments')} icon={<Calendar />} />
+        <NavButton active={view === 'ai-advisor'} onClick={() => setView('ai-advisor')} icon={<Smile />} />
+        <NavButton active={view === 'messages'} onClick={() => setView('messages')} icon={<MessageCircle />} />
+        <NavButton active={view === 'profile'} onClick={() => setView('profile')} icon={<UserIcon />} />
       </nav>
     </div>
   );
@@ -308,7 +351,7 @@ const NavButton = ({ active, onClick, icon }: any) => (
   </button>
 );
 
-const AuthScreen = ({ onAuth, view, setView }: any) => {
+const AuthScreen = ({ view, setView }: any) => {
   const [formData, setFormData] = useState({ name: '', email: '', password: '', pregnancy_start_date: '' });
   const [error, setError] = useState('');
 
@@ -316,10 +359,11 @@ const AuthScreen = ({ onAuth, view, setView }: any) => {
     e.preventDefault();
     setError('');
     try {
-      const res = view === 'login' 
-        ? await api.login({ email: formData.email, password: formData.password })
-        : await api.register(formData);
-      onAuth(res.token, res.user);
+      if (view === 'login') {
+        await api.login({ email: formData.email, password: formData.password });
+      } else {
+        await api.register(formData);
+      }
     } catch (err: any) {
       setError(err.message);
     }
@@ -398,7 +442,7 @@ const AuthScreen = ({ onAuth, view, setView }: any) => {
 
 const SymptomsView = ({ symptoms, onAdd, onBack }: any) => {
   const [showAdd, setShowAdd] = useState(false);
-  const [formData, setFormData] = useState({ symptom: '', severity: 'Mild', notes: '', date_recorded: new Date().toISOString().split('T')[0] });
+  const [formData, setFormData] = useState({ symptom: '', severity: 'mild', notes: '', date_recorded: new Date().toISOString().split('T')[0] });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -427,8 +471,8 @@ const SymptomsView = ({ symptoms, onAdd, onBack }: any) => {
               {s.notes && <p className="text-sm text-gray-600 mt-1 italic">"{s.notes}"</p>}
             </div>
             <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
-              s.severity === 'Severe' ? 'bg-rose-100 text-rose-600' : 
-              s.severity === 'Moderate' ? 'bg-orange-100 text-orange-600' : 
+              s.severity === 'severe' ? 'bg-rose-100 text-rose-600' : 
+              s.severity === 'moderate' ? 'bg-orange-100 text-orange-600' : 
               'bg-emerald-100 text-emerald-600'
             }`}>
               {s.severity}
@@ -449,9 +493,9 @@ const SymptomsView = ({ symptoms, onAdd, onBack }: any) => {
                 value={formData.severity}
                 onChange={(e) => setFormData({ ...formData, severity: e.target.value as any })}
               >
-                <option>Mild</option>
-                <option>Moderate</option>
-                <option>Severe</option>
+                <option value="mild">Mild</option>
+                <option value="moderate">Moderate</option>
+                <option value="severe">Severe</option>
               </select>
             </div>
             <Input label="Notes" placeholder="Any additional details..." value={formData.notes} onChange={(e: any) => setFormData({ ...formData, notes: e.target.value })} />
@@ -687,3 +731,160 @@ const Modal = ({ children, onClose }: any) => (
     </motion.div>
   </div>
 );
+
+const AIAdvisorView = ({ user, symptoms, health, appointments, onBack }: any) => {
+  const [messages, setMessages] = useState<{ role: 'user' | 'model'; text: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.getAIConversation(user.id).then(conv => {
+      if (conv) setMessages(conv.messages);
+    });
+  }, [user.id]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || loading) return;
+
+    const newMessages = [...messages, { role: 'user', text: input } as const];
+    setMessages(newMessages);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const advice = await aiAdvisor.getAdvice(user, symptoms, health, appointments, messages);
+      const updatedMessages = [...newMessages, { role: 'model', text: advice || 'I am sorry, I could not generate advice at this time.' } as const];
+      setMessages(updatedMessages);
+      await api.updateAIConversation(user.id, updatedMessages as any);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col h-[calc(100vh-180px)]">
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={onBack} className="p-2 bg-white rounded-xl shadow-sm"><ChevronLeft /></button>
+        <h2 className="text-2xl font-serif font-bold">AI Advisor</h2>
+      </div>
+
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+        {messages.length === 0 && (
+          <div className="text-center py-12 text-gray-400">
+            <Smile size={48} className="mx-auto mb-4 opacity-20" />
+            <p>Ask me anything about your pregnancy journey!</p>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] p-4 rounded-3xl ${m.role === 'user' ? 'bg-rose-500 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none shadow-sm border border-rose-50'}`}>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-white p-4 rounded-3xl rounded-tl-none shadow-sm border border-rose-50 flex gap-1">
+              <motion.div animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-rose-300 rounded-full" />
+              <motion.div animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-rose-300 rounded-full" />
+              <motion.div animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-rose-300 rounded-full" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <form onSubmit={handleSend} className="flex gap-2">
+        <input 
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type your question..."
+          className="flex-1 bg-white border border-rose-100 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200"
+        />
+        <button type="submit" className="bg-rose-500 text-white p-3 rounded-2xl shadow-lg shadow-rose-200">
+          <Send size={24} />
+        </button>
+      </form>
+    </motion.div>
+  );
+};
+
+const MessagesView = ({ user, allUsers, selectedUser, setSelectedUser, messages, onBack }: any) => {
+  const [input, setInput] = useState('');
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !selectedUser) return;
+    await api.sendMessage(selectedUser.id, input);
+    setInput('');
+  };
+
+  if (selectedUser) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col h-[calc(100vh-180px)]">
+        <div className="flex items-center gap-4 mb-6">
+          <button onClick={() => setSelectedUser(null)} className="p-2 bg-white rounded-xl shadow-sm"><ChevronLeft /></button>
+          <div>
+            <h2 className="text-xl font-serif font-bold leading-none">{selectedUser.name}</h2>
+            <span className="text-[10px] font-bold uppercase text-rose-400 tracking-widest">{selectedUser.role}</span>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+          {messages.map((m: Message) => (
+            <div key={m.id} className={`flex ${m.senderId === user.id ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] p-4 rounded-3xl ${m.senderId === user.id ? 'bg-rose-500 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none shadow-sm border border-rose-50'}`}>
+                <p className="text-sm">{m.text}</p>
+                <span className={`text-[8px] block mt-1 ${m.senderId === user.id ? 'text-white/60' : 'text-gray-400'}`}>
+                  {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <form onSubmit={handleSend} className="flex gap-2">
+          <input 
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Type a message..."
+            className="flex-1 bg-white border border-rose-100 rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-200"
+          />
+          <button type="submit" className="bg-rose-500 text-white p-3 rounded-2xl shadow-lg shadow-rose-200">
+            <Send size={24} />
+          </button>
+        </form>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <div className="flex items-center gap-4">
+        <button onClick={onBack} className="p-2 bg-white rounded-xl shadow-sm"><ChevronLeft /></button>
+        <h2 className="text-2xl font-serif font-bold">Messages</h2>
+      </div>
+
+      <div className="space-y-3">
+        {allUsers.map((u: User) => (
+          <Card 
+            key={u.id} 
+            className="flex items-center gap-4 cursor-pointer hover:bg-rose-50 transition-colors"
+            onClick={() => setSelectedUser(u)}
+          >
+            <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-500 font-bold">
+              {u.name[0]}
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold">{u.name}</h4>
+              <p className="text-xs text-gray-400 capitalize">{u.role}</p>
+            </div>
+            <ChevronRight className="text-gray-300" />
+          </Card>
+        ))}
+      </div>
+    </motion.div>
+  );
+};
